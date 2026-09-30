@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CrystalCraft 3D - 晶體結構與超晶格學習平台</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- lil-gui -->
+    <script src="https://cdn.jsdelivr.net/npm/lil-gui@0.19"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #050811;
+            color: #f1f5f9;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #gui-container {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            width: 380px;
+            max-height: calc(100vh - 2rem);
+            z-index: 30;
+            overflow-y: auto;
+            border-radius: 0.85rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(16px);
+        }
+
+        .lil-gui {
+            --background-color: rgba(13, 20, 36, 0.94);
+            --text-color: #e2e8f0;
+            --title-background-color: #1e293b;
+            --widget-color: #334155;
+            --hover-color: #475569;
+            --focus-color: #0284c7;
+            --number-color: #38bdf8;
+            --string-color: #67e8f9;
+            font-size: 12px;
+            border-radius: 0.85rem;
+        }
+
+        .lil-gui .title {
+            font-weight: 600;
+            letter-spacing: 0.025em;
+        }
+
+        #gui-container::-webkit-scrollbar {
+            width: 6px;
+        }
+        #gui-container::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+        #gui-container::-webkit-scrollbar-track {
+            background: rgba(13, 20, 36, 0.6);
+        }
+    </style>
+</head>
+<body class="relative w-full h-full select-none">
+
+    <!-- 左側資訊面板 -->
+    <div class="absolute top-4 left-4 z-20 flex flex-col gap-3 max-w-sm pointer-events-none">
+        <div class="bg-slate-900/90 backdrop-blur-md p-4 rounded-xl border border-slate-700/60 shadow-2xl pointer-events-auto">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping"></span>
+                    <h1 class="text-base font-bold tracking-wide text-white">CrystalCraft 3D</h1>
+                </div>
+                <span id="badge-boundary" class="text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700">邊界已封閉</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-3">材料晶體學 • 頂角與外壁晶格原子週期補完可視化</p>
+            
+            <!-- 即時物理與晶格資訊 -->
+            <div class="grid grid-cols-2 gap-2 text-xs bg-slate-950/85 p-3 rounded-lg border border-slate-800">
+                <div>
+                    <span class="text-slate-400">超晶胞擴展:</span>
+                    <span id="stat-dim" class="font-mono text-cyan-300 font-bold ml-1">2 × 2 × 2</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">晶胞單元數:</span>
+                    <span id="stat-cells" class="font-mono text-indigo-300 font-bold ml-1">8</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">單元晶胞體積:</span>
+                    <span id="stat-uc-volume" class="font-mono text-emerald-400 font-bold ml-1">0.0 Å³</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">超晶胞總體積:</span>
+                    <span id="stat-total-volume" class="font-mono text-emerald-300 font-bold ml-1">0.0 Å³</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">基元化學式:</span>
+                    <span id="stat-formula" class="font-mono text-amber-300 font-bold ml-1">-</span>
+                </div>
+                <div>
+                    <span class="text-slate-400">渲染總原子數:</span>
+                    <span id="stat-total-atoms" class="font-mono text-rose-400 font-bold ml-1">0</span>
+                </div>
+            </div>
+
+            <!-- 圖例指南 -->
+            <div class="mt-3 pt-2.5 border-t border-slate-800 text-[11px] text-slate-300 space-y-1.5">
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-1.5 bg-amber-400 rounded-sm inline-block shadow"></span>
+                    <span>主原點晶胞 [0,0,0] 邊框 (Primary Unit Cell)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-1 bg-cyan-400/80 rounded-sm inline-block"></span>
+                    <span>超晶格內部個別晶胞網格 (Subcell Grids)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="w-4 h-1.5 bg-white rounded-sm inline-block"></span>
+                    <span>超晶格總外圍邊界 (Outer Supercell Box)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 視角快速工具 & 截圖 -->
+        <div class="bg-slate-900/85 backdrop-blur-md px-3 py-2 rounded-lg border border-slate-800 text-xs text-slate-300 flex items-center justify-between pointer-events-auto">
+            <span>🖱️ 旋轉 / 縮放 / 平移</span>
+            <div class="flex gap-2">
+                <button id="btn-snapshot" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded border border-slate-700 font-medium transition active:scale-95">📸 截圖</button>
+                <button id="btn-reset-view" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded border border-slate-700 font-medium transition active:scale-95">重設視角</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D Canvas 容器 -->
+    <div id="canvas-container"></div>
+    <div id="gui-container"></div>
+
+    <script>
+        // 元素 CPK 顏色與半徑資料庫 (單位: Å)
+        const ELEMENT_DATA = {
+            'H':  { name: '氫 (H)',  color: '#ffffff', radius: 0.37 },
+            'C':  { name: '碳 (C)',  color: '#475569', radius: 0.67 },
+            'N':  { name: '氮 (N)',  color: '#3b82f6', radius: 0.56 },
+            'O':  { name: '氧 (O)',  color: '#ef4444', radius: 0.48 },
+            'Na': { name: '鈉 (Na)', color: '#a855f7', radius: 0.95 },
+            'Mg': { name: '鎂 (Mg)', color: '#10b981', radius: 0.72 },
+            'Al': { name: '鋁 (Al)', color: '#cbd5e1', radius: 0.68 },
+            'Si': { name: '矽 (Si)', color: '#38bdf8', radius: 0.65 },
+            'P':  { name: '磷 (P)',  color: '#f97316', radius: 0.60 },
+            'S':  { name: '硫 (S)',  color: '#eab308', radius: 0.70 },
+            'Cl': { name: '氯 (Cl)', color: '#22c55e', radius: 0.75 },
+            'K':  { name: '鉀 (K)',  color: '#8b5cf6', radius: 1.10 },
+            'Ca': { name: '鈣 (Ca)', color: '#6366f1', radius: 0.90 },
+            'Ti': { name: '鈦 (Ti)', color: '#94a3b8', radius: 0.70 },
+            'Fe': { name: '鐵 (Fe)', color: '#e06666', radius: 0.65 },
+            'Co': { name: '鈷 (Co)', color: '#0284c7', radius: 0.65 },
+            'Ni': { name: '鎳 (Ni)', color: '#14b8a6', radius: 0.65 },
+            'Cu': { name: '銅 (Cu)', color: '#c88033', radius: 0.68 },
+            'Zn': { name: '鋅 (Zn)', color: '#7e22ce', radius: 0.65 },
+            'Mo': { name: '鉬 (Mo)', color: '#545475', radius: 0.75 },
+            'Cs': { name: '銫 (Cs)', color: '#581c87', radius: 1.25 },
+            'Ba': { name: '鋇 (Ba)', color: '#06b6d4', radius: 1.05 },
+            'Pt': { name: '鉑 (Pt)', color: '#d1d5db', radius: 0.70 },
+            'Au': { name: '金 (Au)', color: '#ffd700', radius: 0.75 }
+        };
+
+        // 典型經典結構預設集
+        const PRESETS = {
+            'SC (簡單立方)': {
+                system: 'Cubic (立方)',
+                a: 4.2, b: 4.2, c: 4.2,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Fe', u: 0.0, v: 0.0, w: 0.0 }
+                ]
+            },
+            'BCC (體心立方-鐵)': {
+                system: 'Cubic (立方)',
+                a: 4.5, b: 4.5, c: 4.5,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Fe', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Fe', u: 0.5, v: 0.5, w: 0.5 }
+                ]
+            },
+            'FCC (面心立方-銅)': {
+                system: 'Cubic (立方)',
+                a: 4.6, b: 4.6, c: 4.6,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Cu', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Cu', u: 0.5, v: 0.5, w: 0.0 },
+                    { element: 'Cu', u: 0.5, v: 0.0, w: 0.5 },
+                    { element: 'Cu', u: 0.0, v: 0.5, w: 0.5 }
+                ]
+            },
+            'Diamond (鑽石碳)': {
+                system: 'Cubic (立方)',
+                a: 5.0, b: 5.0, c: 5.0,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'C', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'C', u: 0.5, v: 0.5, w: 0.0 },
+                    { element: 'C', u: 0.5, v: 0.0, w: 0.5 },
+                    { element: 'C', u: 0.0, v: 0.5, w: 0.5 },
+                    { element: 'C', u: 0.25, v: 0.25, w: 0.25 },
+                    { element: 'C', u: 0.75, v: 0.75, w: 0.25 },
+                    { element: 'C', u: 0.75, v: 0.25, w: 0.75 },
+                    { element: 'C', u: 0.25, v: 0.75, w: 0.75 }
+                ]
+            },
+            'NaCl (岩鹽食鹽)': {
+                system: 'Cubic (立方)',
+                a: 5.4, b: 5.4, c: 5.4,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Na', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Na', u: 0.5, v: 0.5, w: 0.0 },
+                    { element: 'Na', u: 0.5, v: 0.0, w: 0.5 },
+                    { element: 'Na', u: 0.0, v: 0.5, w: 0.5 },
+                    { element: 'Cl', u: 0.5, v: 0.0, w: 0.0 },
+                    { element: 'Cl', u: 0.0, v: 0.5, w: 0.0 },
+                    { element: 'Cl', u: 0.0, v: 0.0, w: 0.5 },
+                    { element: 'Cl', u: 0.5, v: 0.5, w: 0.5 }
+                ]
+            },
+            'CsCl (氯化銫)': {
+                system: 'Cubic (立方)',
+                a: 4.4, b: 4.4, c: 4.4,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Cl', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Cs', u: 0.5, v: 0.5, w: 0.5 }
+                ]
+            },
+            'ZnS (閃鋅礦)': {
+                system: 'Cubic (立方)',
+                a: 5.4, b: 5.4, c: 5.4,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Zn', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Zn', u: 0.5, v: 0.5, w: 0.0 },
+                    { element: 'Zn', u: 0.5, v: 0.0, w: 0.5 },
+                    { element: 'Zn', u: 0.0, v: 0.5, w: 0.5 },
+                    { element: 'S',  u: 0.25, v: 0.25, w: 0.25 },
+                    { element: 'S',  u: 0.75, v: 0.75, w: 0.25 },
+                    { element: 'S',  u: 0.75, v: 0.25, w: 0.75 },
+                    { element: 'S',  u: 0.25, v: 0.75, w: 0.75 }
+                ]
+            },
+            'Perovskite (鈣鈦礦 CaTiO3)': {
+                system: 'Cubic (立方)',
+                a: 5.0, b: 5.0, c: 5.0,
+                alpha: 90, beta: 90, gamma: 90,
+                motifs: [
+                    { element: 'Ca', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Ti', u: 0.5, v: 0.5, w: 0.5 },
+                    { element: 'O',  u: 0.5, v: 0.5, w: 0.0 },
+                    { element: 'O',  u: 0.5, v: 0.0, w: 0.5 },
+                    { element: 'O',  u: 0.0, v: 0.5, w: 0.5 }
+                ]
+            },
+            'HCP (六方密堆積-鎂)': {
+                system: 'Hexagonal (六方)',
+                a: 4.2, b: 4.2, c: 6.8,
+                alpha: 90, beta: 90, gamma: 120,
+                motifs: [
+                    { element: 'Mg', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Mg', u: 0.3333, v: 0.6667, w: 0.5 }
+                ]
+            },
+            'Wurtzite (纖鋅礦 ZnS)': {
+                system: 'Hexagonal (六方)',
+                a: 4.2, b: 4.2, c: 6.8,
+                alpha: 90, beta: 90, gamma: 120,
+                motifs: [
+                    { element: 'Zn', u: 0.0, v: 0.0, w: 0.0 },
+                    { element: 'Zn', u: 0.3333, v: 0.6667, w: 0.5 },
+                    { element: 'S',  u: 0.0, v: 0.0, w: 0.375 },
+                    { element: 'S',  u: 0.3333, v: 0.6667, w: 0.875 }
+                ]
+            }
+        };
+
+        // 全域狀態物件
+        const state = {
+            preset: 'SC (簡單立方)',
+            system: 'Cubic (立方)',
+            a: 4.2, b: 4.2, c: 4.2,
+            alpha: 90, beta: 90, gamma: 90,
+            
+            // 超晶胞擴展維度
+            nx: 2, ny: 2, nz: 2,
+            syncDimensions: 2,
+            
+            // 核心功能：封閉邊界原子 (預設開，確保外圍頂角、稜邊、外表面完整展示)
+            completeBoundaries: true,
+            
+            // 顯示風格
+            visMode: 'BallAndStick', // 'BallAndStick' 或 'SpaceFilling'
+            radiusScale: 0.75,
+            expandedAtomOpacity: 1.0,
+            
+            // 晶格線條與外框控制
+            showAllCellGrids: true,
+            showPrimaryCellBox: true,
+            showOuterBoundingBox: true,
+            gridLineColor: '#00d2ff',
+            gridOpacity: 0.35,
+            primaryBoxColor: '#fbbf24',
+            outerBoxColor: '#ffffff',
+            
+            // 鍵結 (Bonds)
+            showBonds: true,
+            maxBondDist: 2.8,
+
+            // 密勒晶面 (Miller Plane)
+            showMillerPlane: false,
+            h: 1, k: 1, l: 0,
+            planeOffset: 0.0,
+            planeColor: '#f43f5e',
+            planeOpacity: 0.45,
+
+            // 當前基元列表
+            motifs: JSON.parse(JSON.stringify(PRESETS['SC (簡單立方)'].motifs))
+        };
+
+        // Three.js 核心
+        let scene, camera, renderer, controls;
+        let crystalGroup = new THREE.Group();
+        let gui, motifFolder, latticeFolder;
+
+        function initEngine() {
+            const container = document.getElementById('canvas-container');
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x060913);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(22, 18, 26);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+
+            // 晶體照明配置
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x1e293b, 0.65);
+            scene.add(hemi);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+            dirLight.position.set(30, 45, 30);
+            scene.add(dirLight);
+
+            const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+            fillLight.position.set(-30, -20, -20);
+            scene.add(fillLight);
+
+            const axes = new THREE.AxesHelper(3.5);
+            axes.position.set(-0.2, -0.2, -0.2);
+            scene.add(axes);
+
+            scene.add(crystalGroup);
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            document.getElementById('btn-reset-view').addEventListener('click', resetCameraFocus);
+            document.getElementById('btn-snapshot').addEventListener('click', takeScreenshot);
+        }
+
+        function takeScreenshot() {
+            renderer.render(scene, camera);
+            const dataUrl = renderer.domElement.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `CrystalCraft_${state.preset}_${state.nx}x${state.ny}x${state.nz}.png`;
+            link.href = dataUrl;
+            link.click();
+        }
+
+        function computeLatticeBasis() {
+            const deg2rad = Math.PI / 180;
+            const { a, b, c, alpha, beta, gamma } = state;
+
+            const alphaR = alpha * deg2rad;
+            const betaR = beta * deg2rad;
+            const gammaR = gamma * deg2rad;
+
+            // a 沿著 X 軸
+            const a_vec = new THREE.Vector3(a, 0, 0);
+
+            // b 向量置於 XY 平面
+            const b_vec = new THREE.Vector3(
+                b * Math.cos(gammaR),
+                b * Math.sin(gammaR),
+                0
+            );
+
+            // c 向量於 3D 空間 (符合任意晶格標準幾何定義)
+            const cx = c * Math.cos(betaR);
+            const cy = c * (Math.cos(alphaR) - Math.cos(betaR) * Math.cos(gammaR)) / Math.sin(gammaR);
+            const cz_sq = c * c - cx * cx - cy * cy;
+            const cz = cz_sq > 0 ? Math.sqrt(cz_sq) : 0;
+            const c_vec = new THREE.Vector3(cx, cy, cz);
+
+            return { a_vec, b_vec, c_vec };
+        }
+
+        function calculateVolume(a_vec, b_vec, c_vec) {
+            const cross = new THREE.Vector3().crossVectors(b_vec, c_vec);
+            return Math.abs(a_vec.dot(cross));
+        }
+
+        function resetCameraFocus() {
+            const { a_vec, b_vec, c_vec } = computeLatticeBasis();
+            const center = new THREE.Vector3()
+                .addScaledVector(a_vec, state.nx * 0.5)
+                .addScaledVector(b_vec, state.ny * 0.5)
+                .addScaledVector(c_vec, state.nz * 0.5);
+
+            controls.target.copy(center);
+            const maxDim = Math.max(state.nx * state.a, state.ny * state.b, state.nz * state.c);
+            camera.position.set(center.x + maxDim * 1.7, center.y + maxDim * 1.4, center.z + maxDim * 2.1);
+            controls.update();
+        }
+
+        function rebuildCrystalScene() {
+            while (crystalGroup.children.length > 0) {
+                const child = crystalGroup.children[0];
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
+                }
+                crystalGroup.remove(child);
+            }
+
+            const { a_vec, b_vec, c_vec } = computeLatticeBasis();
+            const nx = parseInt(state.nx);
+            const ny = parseInt(state.ny);
+            const nz = parseInt(state.nz);
+
+            // 計算化學式字串
+            const counts = {};
+            state.motifs.forEach(m => {
+                counts[m.element] = (counts[m.element] || 0) + 1;
+            });
+            const formulaStr = Object.entries(counts).map(([el, num]) => `${el}${num > 1 ? num : ''}`).join('');
+
+            // 更新 UI 狀態
+            const ucVol = calculateVolume(a_vec, b_vec, c_vec);
+            const numCells = nx * ny * nz;
+
+            document.getElementById('stat-dim').innerText = `${nx} × ${ny} × ${nz}`;
+            document.getElementById('stat-cells').innerText = numCells;
+            document.getElementById('stat-uc-volume').innerText = `${ucVol.toFixed(1)} Å³`;
+            document.getElementById('stat-total-volume').innerText = `${(ucVol * numCells).toFixed(1)} Å³`;
+            document.getElementById('stat-formula').innerText = formulaStr || '無';
+            
+            const badge = document.getElementById('badge-boundary');
+            if (state.completeBoundaries) {
+                badge.innerText = '邊界已封閉';
+                badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-700';
+            } else {
+                badge.innerText = '開放非封閉';
+                badge.className = 'text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-700';
+            }
+
+            // 1. 晶格線框繪製
+            renderLatticeWireframes(a_vec, b_vec, c_vec, nx, ny, nz);
+
+            // 2. 徹底填充所有晶胞原子（含封閉邊界頂角/外壁算法）
+            const allAtomPositions = [];
+            renderAllSubcellAtoms(a_vec, b_vec, c_vec, nx, ny, nz, allAtomPositions);
+
+            document.getElementById('stat-total-atoms').innerText = `${allAtomPositions.length} 顆`;
+
+            // 3. 鍵結線條 (若處於球棒模式且啟用)
+            if (state.showBonds && state.visMode === 'BallAndStick') {
+                renderBonds(allAtomPositions);
+            }
+
+            // 4. 密勒晶面切片可視化
+            if (state.showMillerPlane) {
+                renderMillerPlane(a_vec, b_vec, c_vec, nx, ny, nz);
+            }
+        }
+
+        function renderLatticeWireframes(a_vec, b_vec, c_vec, nx, ny, nz) {
+            // A. 超晶格內部所有個別晶胞格線 (Subcell Grids)
+            if (state.showAllCellGrids) {
+                const gridPositions = [];
+
+                for (let i = 0; i < nx; i++) {
+                    for (let j = 0; j < ny; j++) {
+                        for (let k = 0; k < nz; k++) {
+                            // 若此格為 (0,0,0) 且開了主晶胞高亮框，可跳過以免重疊亮線
+                            if (i === 0 && j === 0 && k === 0 && state.showPrimaryCellBox) continue;
+
+                            const origin = new THREE.Vector3()
+                                .addScaledVector(a_vec, i)
+                                .addScaledVector(b_vec, j)
+                                .addScaledVector(c_vec, k);
+
+                            appendUnitBoxLines(origin, a_vec, b_vec, c_vec, gridPositions);
+                        }
+                    }
+                }
+
+                if (gridPositions.length > 0) {
+                    const gridGeo = new THREE.BufferGeometry();
+                    gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
+                    const gridMat = new THREE.LineBasicMaterial({
+                        color: new THREE.Color(state.gridLineColor),
+                        transparent: true,
+                        opacity: state.gridOpacity
+                    });
+                    crystalGroup.add(new THREE.LineSegments(gridGeo, gridMat));
+                }
+            }
+
+            // B. 高亮主原點晶胞 (0,0,0)
+            if (state.showPrimaryCellBox) {
+                const primaryPositions = [];
+                appendUnitBoxLines(new THREE.Vector3(0, 0, 0), a_vec, b_vec, c_vec, primaryPositions);
+
+                const primaryGeo = new THREE.BufferGeometry();
+                primaryGeo.setAttribute('position', new THREE.Float32BufferAttribute(primaryPositions, 3));
+                const primaryMat = new THREE.LineBasicMaterial({
+                    color: new THREE.Color(state.primaryBoxColor),
+                    linewidth: 2,
+                    transparent: false
+                });
+                crystalGroup.add(new THREE.LineSegments(primaryGeo, primaryMat));
+            }
+
+            // C. 整體超晶格最外圍的大外框 (Outer Supercell Box)
+            if (state.showOuterBoundingBox && (nx > 1 || ny > 1 || nz > 1)) {
+                const outerPositions = [];
+                const fullA = new THREE.Vector3().copy(a_vec).multiplyScalar(nx);
+                const fullB = new THREE.Vector3().copy(b_vec).multiplyScalar(ny);
+                const fullC = new THREE.Vector3().copy(c_vec).multiplyScalar(nz);
+
+                appendUnitBoxLines(new THREE.Vector3(0, 0, 0), fullA, fullB, fullC, outerPositions);
+
+                const outerGeo = new THREE.BufferGeometry();
+                outerGeo.setAttribute('position', new THREE.Float32BufferAttribute(outerPositions, 3));
+                const outerMat = new THREE.LineBasicMaterial({
+                    color: new THREE.Color(state.outerBoxColor),
+                    transparent: true,
+                    opacity: 0.85
+                });
+                crystalGroup.add(new THREE.LineSegments(outerGeo, outerMat));
+            }
+        }
+
+        function appendUnitBoxLines(origin, u, v, w, buffer) {
+            const p000 = origin.clone();
+            const p100 = origin.clone().add(u);
+            const p010 = origin.clone().add(v);
+            const p001 = origin.clone().add(w);
+            const p110 = origin.clone().add(u).add(v);
+            const p101 = origin.clone().add(u).add(w);
+            const p011 = origin.clone().add(v).add(w);
+            const p111 = origin.clone().add(u).add(v).add(w);
+
+            const edges = [
+                // 底面
+                p000, p100,  p100, p110,  p110, p010,  p010, p000,
+                // 頂面
+                p001, p101,  p101, p111,  p111, p011,  p011, p001,
+                // 四條立柱
+                p000, p001,  p100, p101,  p110, p111,  p010, p011
+            ];
+
+            for (let i = 0; i < edges.length; i += 2) {
+                buffer.push(edges[i].x, edges[i].y, edges[i].z);
+                buffer.push(edges[i+1].x, edges[i+1].y, edges[i+1].z);
+            }
+        }
+
+        function renderAllSubcellAtoms(a_vec, b_vec, c_vec, nx, ny, nz, allAtomPositions) {
+            const sphereGeo = new THREE.SphereGeometry(1, 26, 22);
+            const EPS = 1e-4; // 容許誤差值
+
+            // 依元素分類批次渲染
+            const elementBuckets = {};
+
+            // 遍歷每一個超晶胞單元 (i, j, k)
+            for (let i = 0; i < nx; i++) {
+                for (let j = 0; j < ny; j++) {
+                    for (let k = 0; k < nz; k++) {
+                        
+                        state.motifs.forEach((motif) => {
+                            const elem = motif.element;
+                            if (!elementBuckets[elem]) {
+                                elementBuckets[elem] = [];
+                            }
+
+                            // 邊界補完判斷：
+                            // 若啟用 completeBoundaries，且當前晶胞處於最外側 (i === nx-1 等)，
+                            // 且基元座標落在晶胞邊界面上 (u=0, v=0, 或 w=0)，
+                            // 則需在邊界面額外生成對應的週期複製點 (du=1, dv=1, dw=1)。
+                            let duList = [0];
+                            let dvList = [0];
+                            let dwList = [0];
+
+                            if (state.completeBoundaries) {
+                                if (i === nx - 1 && Math.abs(motif.u) < EPS) duList.push(1);
+                                if (j === ny - 1 && Math.abs(motif.v) < EPS) dvList.push(1);
+                                if (k === nz - 1 && Math.abs(motif.w) < EPS) dwList.push(1);
+                            }
+
+                            for (let du of duList) {
+                                for (let dv of dvList) {
+                                    for (let dw of dwList) {
+                                        const globalU = motif.u + i + du;
+                                        const globalV = motif.v + j + dv;
+                                        const globalW = motif.w + k + dw;
+
+                                        const pos = new THREE.Vector3()
+                                            .addScaledVector(a_vec, globalU)
+                                            .addScaledVector(b_vec, globalV)
+                                            .addScaledVector(c_vec, globalW);
+
+                                        elementBuckets[elem].push({
+                                            position: pos,
+                                            isOriginCell: (i === 0 && j === 0 && k === 0 && du === 0 && dv === 0 && dw === 0)
+                                        });
+
+                                        allAtomPositions.push({ pos: pos, element: elem });
+                                    }
+                                }
+                            }
+                        });
+
+                    }
+                }
+            }
+
+            // 建立每個元素的 InstancedMesh
+            Object.keys(elementBuckets).forEach(elemSymbol => {
+                const list = elementBuckets[elemSymbol];
+                const elemInfo = ELEMENT_DATA[elemSymbol] || { color: '#94a3b8', radius: 0.65 };
+
+                // 計算半徑 (空間充填模式 vs 球棒模型)
+                let baseR;
+                if (state.visMode === 'SpaceFilling') {
+                    baseR = elemInfo.radius * 1.6;
+                } else {
+                    baseR = elemInfo.radius * state.radiusScale;
+                }
+
+                const mat = new THREE.MeshStandardMaterial({
+                    color: new THREE.Color(elemInfo.color),
+                    roughness: 0.28,
+                    metalness: 0.18,
+                    transparent: state.expandedAtomOpacity < 0.98,
+                    opacity: state.expandedAtomOpacity
+                });
+
+                const instMesh = new THREE.InstancedMesh(sphereGeo, mat, list.length);
+                const dummy = new THREE.Object3D();
+
+                list.forEach((item, idx) => {
+                    dummy.position.copy(item.position);
+                    dummy.scale.set(baseR, baseR, baseR);
+                    dummy.updateMatrix();
+                    instMesh.setMatrixAt(idx, dummy.matrix);
+                });
+
+                instMesh.instanceMatrix.needsUpdate = true;
+                crystalGroup.add(instMesh);
+            });
+        }
+
+        function renderBonds(allAtomPositions) {
+            const bondPositions = [];
+            const maxD = state.maxBondDist;
+            const maxDSq = maxD * maxD;
+
+            for (let i = 0; i < allAtomPositions.length; i++) {
+                for (let j = i + 1; j < allAtomPositions.length; j++) {
+                    const p1 = allAtomPositions[i].pos;
+                    const p2 = allAtomPositions[j].pos;
+                    const distSq = p1.distanceToSquared(p2);
+
+                    if (distSq > 0.45 && distSq <= maxDSq) {
+                        bondPositions.push(p1.x, p1.y, p1.z);
+                        bondPositions.push(p2.x, p2.y, p2.z);
+                    }
+                }
+            }
+
+            if (bondPositions.length > 0) {
+                const bondGeo = new THREE.BufferGeometry();
+                bondGeo.setAttribute('position', new THREE.Float32BufferAttribute(bondPositions, 3));
+                const bondMat = new THREE.LineBasicMaterial({
+                    color: 0x94a3b8,
+                    transparent: true,
+                    opacity: 0.5,
+                    linewidth: 1.5
+                });
+                crystalGroup.add(new THREE.LineSegments(bondGeo, bondMat));
+            }
+        }
+
+        function renderMillerPlane(a_vec, b_vec, c_vec, nx, ny, nz) {
+            const { h, k, l, planeOffset } = state;
+            if (h === 0 && k === 0 && l === 0) return;
+
+            const b_cross_c = new THREE.Vector3().crossVectors(b_vec, c_vec);
+            const c_cross_a = new THREE.Vector3().crossVectors(c_vec, a_vec);
+            const a_cross_b = new THREE.Vector3().crossVectors(a_vec, b_vec);
+
+            const normal = new THREE.Vector3()
+                .addScaledVector(b_cross_c, h)
+                .addScaledVector(c_cross_a, k)
+                .addScaledVector(a_cross_b, l)
+                .normalize();
+
+            const center = new THREE.Vector3()
+                .addScaledVector(a_vec, nx * 0.5)
+                .addScaledVector(b_vec, ny * 0.5)
+                .addScaledVector(c_vec, nz * 0.5);
+
+            const planeSize = Math.max(state.a * nx, state.b * ny, state.c * nz) * 1.6;
+            const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize);
+            const planeMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(state.planeColor),
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: state.planeOpacity,
+                depthWrite: false,
+                roughness: 0.35
+            });
+
+            const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+            planeMesh.position.copy(center).addScaledVector(normal, planeOffset);
+            planeMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+            crystalGroup.add(planeMesh);
+        }
+
+        function applySystemConstraints() {
+            const sys = state.system;
+            if (sys.includes('Cubic')) {
+                state.b = state.c = state.a;
+                state.alpha = state.beta = state.gamma = 90;
+            } else if (sys.includes('Tetragonal')) {
+                state.b = state.a;
+                state.alpha = state.beta = state.gamma = 90;
+            } else if (sys.includes('Orthorhombic')) {
+                state.alpha = state.beta = state.gamma = 90;
+            } else if (sys.includes('Hexagonal')) {
+                state.b = state.a;
+                state.alpha = state.beta = 90;
+                state.gamma = 120;
+            } else if (sys.includes('Monoclinic')) {
+                state.alpha = state.gamma = 90;
+            }
+            rebuildCrystalScene();
+        }
+
+        function setupGUI() {
+            const container = document.getElementById('gui-container');
+            gui = new lil.GUI({ container: container, title: '晶體結構與超晶格控制面板' });
+
+            // 1. 預設晶體結構切換
+            gui.add(state, 'preset', Object.keys(PRESETS)).name('經典結構預設').onChange(name => {
+                const data = PRESETS[name];
+                state.system = data.system;
+                state.a = data.a;
+                state.b = data.b;
+                state.c = data.c;
+                state.alpha = data.alpha;
+                state.beta = data.beta;
+                state.gamma = data.gamma;
+                state.motifs = JSON.parse(JSON.stringify(data.motifs));
+                refreshMotifFolder();
+                applySystemConstraints();
+                resetCameraFocus();
+            });
+
+            // 2. 超晶胞擴展設定 (含核心：封閉邊界原子切換)
+            const superFolder = gui.addFolder('超晶胞擴展 (Supercell)');
+            superFolder.add(state, 'completeBoundaries').name('封閉邊界原子 (補完頂角/外壁)').onChange(rebuildCrystalScene);
+            
+            superFolder.add(state, 'syncDimensions', 1, 4, 1).name('同步等比擴展 (N³)').onChange(val => {
+                state.nx = state.ny = state.nz = val;
+                rebuildCrystalScene();
+                resetCameraFocus();
+            });
+            superFolder.add(state, 'nx', 1, 4, 1).name('Nx (a 軸週期)').listen().onChange(rebuildCrystalScene);
+            superFolder.add(state, 'ny', 1, 4, 1).name('Ny (b 軸週期)').listen().onChange(rebuildCrystalScene);
+            superFolder.add(state, 'nz', 1, 4, 1).name('Nz (c 軸週期)').listen().onChange(rebuildCrystalScene);
+            superFolder.add(state, 'expandedAtomOpacity', 0.1, 1.0, 0.05).name('原子透明度').onChange(rebuildCrystalScene);
+            superFolder.open();
+
+            // 3. 晶格線條與外框顯示控制
+            const linesFolder = gui.addFolder('晶格線條與外框 (Wireframes)');
+            linesFolder.add(state, 'showAllCellGrids').name('超晶格內部個別晶胞線').onChange(rebuildCrystalScene);
+            linesFolder.add(state, 'showPrimaryCellBox').name('高亮原點主晶胞 [0,0,0]').onChange(rebuildCrystalScene);
+            linesFolder.add(state, 'showOuterBoundingBox').name('超晶胞總外邊框').onChange(rebuildCrystalScene);
+            linesFolder.addColor(state, 'gridLineColor').name('晶胞格線顏色').onChange(rebuildCrystalScene);
+            linesFolder.add(state, 'gridOpacity', 0.05, 1.0, 0.05).name('格線透明度').onChange(rebuildCrystalScene);
+            linesFolder.addColor(state, 'primaryBoxColor').name('主晶胞框色彩').onChange(rebuildCrystalScene);
+
+            // 4. 晶系與晶格常數調整
+            latticeFolder = gui.addFolder('晶系與晶格參數 (Lattice)');
+            latticeFolder.add(state, 'system', [
+                'Cubic (立方)', 'Tetragonal (四方)', 'Orthorhombic (正交)',
+                'Hexagonal (六方)', 'Monoclinic (單斜)', 'Triclinic (三斜)'
+            ]).name('晶系 (System)').onChange(applySystemConstraints);
+
+            latticeFolder.add(state, 'a', 2.0, 10.0, 0.1).name('a (Å)').listen().onChange(applySystemConstraints);
+            latticeFolder.add(state, 'b', 2.0, 10.0, 0.1).name('b (Å)').listen().onChange(applySystemConstraints);
+            latticeFolder.add(state, 'c', 2.0, 10.0, 0.1).name('c (Å)').listen().onChange(applySystemConstraints);
+            latticeFolder.add(state, 'alpha', 45, 135, 1).name('α (度)').listen().onChange(applySystemConstraints);
+            latticeFolder.add(state, 'beta', 45, 135, 1).name('β (度)').listen().onChange(applySystemConstraints);
+            latticeFolder.add(state, 'gamma', 45, 135, 1).name('γ (度)').listen().onChange(applySystemConstraints);
+
+            // 5. 顯示模型與鍵結
+            const styleFolder = gui.addFolder('模型風格與鍵結');
+            styleFolder.add(state, 'visMode', ['BallAndStick', 'SpaceFilling']).name('可視化模式').onChange(rebuildCrystalScene);
+            styleFolder.add(state, 'radiusScale', 0.2, 1.5, 0.05).name('球體半徑比例').onChange(rebuildCrystalScene);
+            styleFolder.add(state, 'showBonds').name('自動連接相鄰鍵結').onChange(rebuildCrystalScene);
+            styleFolder.add(state, 'maxBondDist', 1.0, 4.5, 0.1).name('鍵結判定上限 (Å)').onChange(rebuildCrystalScene);
+
+            // 6. 密勒指數切面
+            const millerFolder = gui.addFolder('密勒晶面 (Miller Plane)');
+            millerFolder.add(state, 'showMillerPlane').name('啟用晶面切片').onChange(rebuildCrystalScene);
+            millerFolder.add(state, 'h', -3, 3, 1).name('h').onChange(rebuildCrystalScene);
+            millerFolder.add(state, 'k', -3, 3, 1).name('k').onChange(rebuildCrystalScene);
+            millerFolder.add(state, 'l', -3, 3, 1).name('l').onChange(rebuildCrystalScene);
+            millerFolder.add(state, 'planeOffset', -12, 12, 0.2).name('平面截距平移').onChange(rebuildCrystalScene);
+            millerFolder.addColor(state, 'planeColor').name('晶面色彩').onChange(rebuildCrystalScene);
+            millerFolder.add(state, 'planeOpacity', 0.1, 0.9, 0.05).name('晶面透明度').onChange(rebuildCrystalScene);
+
+            // 7. 基元 (Motif) 編輯器
+            motifFolder = gui.addFolder('基元原子編輯 (Motif/Basis)');
+            const motifActions = {
+                addAtom: () => {
+                    state.motifs.push({ element: 'Fe', u: 0.5, v: 0.5, w: 0.5 });
+                    refreshMotifFolder();
+                    rebuildCrystalScene();
+                }
+            };
+            motifFolder.add(motifActions, 'addAtom').name('➕ 新增基元原子');
+            refreshMotifFolder();
+        }
+
+        // 動態刷新 Motif 列表 UI
+        function refreshMotifFolder() {
+            const sub = [...motifFolder.folders];
+            sub.forEach(f => f.destroy());
+
+            state.motifs.forEach((m, index) => {
+                const subf = motifFolder.addFolder(`基元 ${index + 1} (${m.element})`);
+                subf.add(m, 'element', Object.keys(ELEMENT_DATA)).name('元素種類').onChange(() => {
+                    subf.title(`基元 ${index + 1} (${m.element})`);
+                    rebuildCrystalScene();
+                });
+                subf.add(m, 'u', 0, 1, 0.01).name('u (x 分數)').onChange(rebuildCrystalScene);
+                subf.add(m, 'v', 0, 1, 0.01).name('v (y 分數)').onChange(rebuildCrystalScene);
+                subf.add(m, 'w', 0, 1, 0.01).name('w (z 分數)').onChange(rebuildCrystalScene);
+                subf.add({
+                    del: () => {
+                        state.motifs.splice(index, 1);
+                        refreshMotifFolder();
+                        rebuildCrystalScene();
+                    }
+                }, 'del').name('🗑️ 移除此原子');
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            initEngine();
+            setupGUI();
+            applySystemConstraints();
+            resetCameraFocus();
+            animate();
+        };
+    </script>
+</body>
+</html>
